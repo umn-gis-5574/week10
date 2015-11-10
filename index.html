@@ -1,276 +1,322 @@
 <!DOCTYPE html>
 <html>
 <head>
-<!-- From https://github.com/ekenes/esri-js-samples/blob/master/ge-gs/index.html -->
-<meta charset="utf-8">
-<meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no"
-<title>Geometry Service vs. GeometryEngine</title>
-
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no"/>
+<title>Geometry Engine: Overlay</title>
+<!-- from https://raw.githubusercontent.com/ekenes/esri-js-samples/master/ge-overlay/index.html-->
+<link rel="stylesheet" href="http://js.arcgis.com/3.14/esri/css/esri.css">
 <style>
-  html, body {
-    padding: 0;
-    margin: 0;
-    height: 100%;
-  }
-  .viewDivBase{
-    padding: 0;
-    margin: 0;
-    height: 100%;
-    width: 49.9%;
-  }
-  #viewDivgs{
-    float: right;
-  }
-  #viewDivge{
-    float: left;
-  }
-  .title{
-    top: 0;
-    right: 0;
-    text-align: center;
-    position: absolute;
-    z-index: 99;
-    background-color: white;
-    padding: 6px;
-    font-weight: bolder;
-    background-color: beige;
-    border-bottom-left-radius: 6px;
-    border-color: black;
-    font-size: 1.7em;
-  }
-  #geTitle{
-    right: 50%;
-  }
-  #legend{
-    background-color: beige;
-    border-top-right-radius: 6px;
-    border-color: black;  
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    z-index: 84;
-    padding: 6px; 
-  }
-    button{
-      font-weight: bolder;
-    }
+html, body, #map {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+#results{
+  bottom: 50px;
+  right: 20px;
+  width: 275px;
+}
+#title{
+  text-align: center;
+}
+#myChart{
+  padding-left: 10px;
+}    
+.mainStyle{
+  position: absolute;
+  z-index: 99;
+  background-color: black;
+  color: cornsilk;
+  border-radius: 8px;
+  padding: 15px;
+  opacity: 0.8;
+}
+.pvt{
+  color: #8A8A8A
+}
+.pub{
+  color: #99F095;
+}
 </style>
-    
+
+<script src="http://js.arcgis.com/3.14/"></script>
 <script>
-  var dojoConfig = { 
-    paths: {
-      ViewUtils: location.pathname.replace(/\/[^/]+$/, "") + "./",
+var map, landLyr, utahLyr, pieChart, buffGeom;
+require(["esri/map",
+         "./Chart-js/Chart.js",
+         "esri/graphic",
+         "esri/graphicsUtils",
+         "esri/geometry/Extent",
+         "esri/geometry/geometryEngine",
+         "esri/SpatialReference",
+         "esri/symbols/SimpleFillSymbol",
+         "esri/symbols/SimpleLineSymbol",
+         "esri/renderers/SimpleRenderer",
+         "esri/toolbars/draw",
+         "esri/Color",
+         "esri/layers/FeatureLayer",
+         "dojo/on",
+         "dojo/_base/array",
+         "dojo/dom",
+         "dojo/domReady!"
+], function(Map, Chart, Graphic, graphicsUtils, Extent, geometryEngine, SpatialReference, SimpleFillSymbol, SimpleLineSymbol, SimpleRenderer, Draw, Color, FeatureLayer, on, array, dom) {
+   
+  //Set up map, layers, and properties    
+  var initExtent = new Extent(-12525064, 4509990, -12329386, 4621283, new SpatialReference({wkid:3857}));
+  map = new Map("map", {
+    basemap: "hybrid",
+    extent: initExtent
+  });
+  on(map, "load", function(){
+    map.disableMapNavigation();   
+  });
+ 
+  var landUrl = "http://tlamap.trustlands.utah.gov/arcgis/rest/services/UT_SITLA_LandOwnership/MapServer/0";
+  var statesUrl = "http://sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer/3";
+  landLyr = new FeatureLayer(landUrl, {
+    opacity: 0.3,
+    definitionExpression: "STATE_LGD = 'Private'"
+  });
+  utahLyr = new FeatureLayer(statesUrl, {
+    definitionExpression: "STATE_NAME = 'Utah'",
+    opacity: 0
+  });
+    
+  var pvtRenderer = new SimpleRenderer(new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID, new SimpleLineSymbol(SimpleLineSymbol.STYLE_NULL, new Color("black"), 0), new Color([211,222,4,1])));
+  landLyr.setRenderer(pvtRenderer);
+  map.addLayers([utahLyr, landLyr]);
+    
+  //Layer symbology    
+  var buffSym = new SimpleFillSymbol(SimpleFillSymbol.STYLE_NULL, new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID, new Color([255, 255, 255, 1]), 3), null);
+  var buffSymFade = new SimpleFillSymbol(SimpleFillSymbol.STYLE_NULL, new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID, new Color([255, 255, 255, 0.4]), 10), null);
+  var privateSym = new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID, new SimpleLineSymbol(SimpleLineSymbol.STYLE_NULL, new Color([0, 0, 0]), 0), new Color([138, 138, 138, 0.7]));
+  var publicSym = new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID, new SimpleLineSymbol(SimpleLineSymbol.STYLE_NULL, new Color([0, 0, 0]), 0), new Color([161, 255, 156, 0.7]));
+  var update = 0;
+  //map event handlers  
+  on(map, "click", createBuffer);
+  on(map, "mouse-drag", createBuffer);
+  on(map, "update-end", function(){
+    update++;
+    if(update === 1){
+      var fakeEvt = {};
+      fakeEvt.mapPoint = map.extent.getCenter();
+      createBuffer(fakeEvt);  
     }
-  };
-</script>    
-
-<link rel="stylesheet" href="https://js.arcgis.com/4.0beta1/esri/css/esri.css">
-<script src="https://js.arcgis.com/4.0beta1/"></script>
-
-<script>
-var map, fraudLayer, bufferLayerGE, bufferLayerGS, viewGS, viewGE, gs;
-
-require([
-  "esri/Map",
-  "esri/views/MapView",
-  "esri/layers/GraphicsLayer",
-  "esri/layers/FeatureLayer",
-  "esri/Graphic",
-  "esri/symbols/SimpleLineSymbol",
-  "esri/symbols/SimpleFillSymbol",
-  "esri/geometry/geometryEngineAsync",
-  "esri/tasks/GeometryService",
-  "esri/tasks/support/BufferParameters",
-  "dojo/dom", "dojo/on",
-  "dojo/domReady!"
-],
-function(
-  Map,
-  MapView,
-  GraphicsLayer,
-  FeatureLayer,
-  Graphic,
-  SimpleLineSymbol,
-  SimpleFillSymbol,
-  geometryEngineAsync,
-  GeometryService,
-  BufferParameters,
-  dom, on
-) {
-    
-  geResultsNode = dom.byId("resultsGE");
-  gsResultsNode = dom.byId("resultsGS");
-    
-  fraudLayer = new FeatureLayer({
-    url: "http://services.arcgis.com/V6ZHFr6zdgNZuVG0/arcgis/rest/services/WorldCities/FeatureServer/0"
   });
-    
-  bufferLayerGE = new GraphicsLayer({
-    opacity: 0.5
-  });
-  bufferLayerGS = new GraphicsLayer({
-    opacity: 0.5
-  });     
-    
-  gs = new GeometryService({
-    url: "http://sampleserver6.arcgisonline.com/arcgis/rest/services/Utilities/Geometry/GeometryServer"
-  });    
+  var drawPolygon = new Draw(map, { showTooltips: true });    
+  
+  function createBuffer(evt){
+    if(buffOpt.checked){
+      map.graphics.clear();
+      var centerPt = evt.mapPoint;
+      //Get buffer of map click point
+      buffGeom = geometryEngine.geodesicBuffer(centerPt, 10, "miles");
+      //check if buffer is completely within Utah
+      var within = geometryEngine.within(buffGeom, utahLyr.graphics[0].geometry);
+      //check if buffer overlaps Utah    
+      var overlaps = geometryEngine.overlaps(buffGeom, utahLyr.graphics[0].geometry);
 
-  viewGS = new MapView({
-    container: "viewDivgs",
-    map: new Map({
-      basemap: "streets",
-      layers: [fraudLayer, bufferLayerGS],
-      zoom: 2
-    })
-  });
-
-  viewGE = new MapView({
-    container: "viewDivge",
-    map: new Map({
-      basemap: "streets",
-      layers: [fraudLayer, bufferLayerGE],
-      zoom: 2
-    })
-  });
-    
-  function initViews(layer){
-    viewGS.then(function(){
-      viewGS.animateTo({
-        center: layer.fullExtent.center,
-        zoom: 2
-      });
-    });
-    viewGE.then(function(){
-      viewGE.animateTo({
-        center: layer.fullExtent.center,
-        zoom: 2
-      });
-    });
-  }
-      
-  fraudLayer.then(initViews);      
-
-  var bufferSym = new SimpleFillSymbol({
-    style: "solid",
-    color: "red",
-    outline: new SimpleLineSymbol({
-      width: 0
-    })
-  });
-    
-  on(dom.byId("buffBtn"), "click", createBuffers);
-    
-  function createBuffers(){
-    
-    var flv = viewGE.getLayerView(fraudLayer);
-    var geoms = getGeoms(flv.graphics);  
-    
-    createGEbuffers(geoms);
-    createGSbuffers(geoms);
-  }
-    
-  function createGSbuffers(geometries){
-    var startTime = Date.now();
-    timer(gsResultsNode, true);
-    var params = new BufferParameters({
-      distances: [500],
-      unit: 9093,
-      geodesic: true,
-      geometries: geometries,
-      unionResults: false
-    });
-      
-    gs.buffer(params).then(function(buffers){
-      buffers.forEach(function(buff, i){
-        var buffGraphic = new Graphic({
-          geometry: buff,
-          symbol: bufferSym
-        });
-        bufferLayerGS.add(buffGraphic);
-      });    
-      return Date.now();
-    }).then(function(endTime){
-      timer(gsResultsNode, false);    
-      var processTime = (endTime - startTime) / 1000;
-      gsResultsNode.innerHTML = processTime + " seconds";
-      dom.byId("gsTime").style.fontWeight = "bolder";
-    });
-  }
-    
-  function createGEbuffers(geometries){
-    var startTime = Date.now();
-    timer(geResultsNode, true);  
-    console.log("start time: ", startTime);
-    geometryEngineAsync.geodesicBuffer(geometries, [500], "miles", false).then(function(buffers){
-      buffers.forEach(function(buff, i){
-        var buffGraphic = new Graphic({
-          geometry: buff,
-          symbol: bufferSym
-        });
-        bufferLayerGE.add(buffGraphic);
-      });
-      return Date.now();
-    }).then(function(endTime){
-      timer(geResultsNode, false);    
-      var processTime = (endTime - startTime) / 1000;
-      geResultsNode.innerHTML = processTime + " seconds";
-      dom.byId("geTime").style.fontWeight = "bolder";
-    });
-  }
-    
-  function getGeoms(graphics){
-     return graphics.map(function(item, i){
-        return item.geometry; 
-     }).items;
-  }
-
-  function timer(node, start){
-    if(gsResultsNode===node){    
-      if(start){
-        i = 0;
-        gsCounter = setInterval(function(){
-          i++;
-          gsResultsNode.innerHTML = i + " seconds";        
-        }, 1000);   
-      } else{
-        clearInterval(gsCounter);  
+      if(!within && overlaps){
+         //If buffer overlaps Utah, then only get the portion within Utah  
+         buffGeom = geometryEngine.intersect(buffGeom, utahLyr.graphics[0].geometry);
+      }
+      if(!within && !overlaps){
+        //If buffer is completely outside Utah, then warn the user
+        console.log("outside of utah!");          
+        return;
       } 
+      map.graphics.add(new Graphic(buffGeom, buffSymFade));
+
+      var privateLand = getPrivateLand(buffGeom);
+      var publicLand = getPublicLand(buffGeom, privateLand.geom);
+      generateChart(privateLand, publicLand);   
+    } else if(drawOpt.checked){
+      map.graphics.clear();
     }
     else{
-      if(start){
-        j = 0;
-        geCounter = setInterval(function(){
-          j++;
-          geResultsNode.innerHTML = j + " seconds";        
-        }, 1000);   
-      } else{
-        clearInterval(geCounter);  
-      }        
-   }
- }
+      return;
+    }
+  }
+    
+  function getPrivateLand(geom){
+    var privateLandGraphics = landLyr.graphics;
+    var privateLandGeoms = graphicsUtils.getGeometries(privateLandGraphics);
+    //Only work with private land that intersects the buffer (essentially a select by location)  
+    var priInBuffer = array.filter(privateLandGeoms, function(item, i){
+      if(geometryEngine.intersects(item, geom)){
+        return item;
+      }
+    });
+    if (priInBuffer.length > 0){
+      //merge all the private land features that intersects buffer into one feature
+      var privateUnion = geometryEngine.union(priInBuffer);
+      //get intersection of buffer and merge (cookie cutter)
+      var privateIntersect = geometryEngine.intersect(privateUnion, geom);
+      return {
+        geom: privateIntersect,
+        area: calcArea(privateIntersect)  //get the area of the private land
+      }  
+    }
+    else{
+      return {
+        geom: null,
+        area: 0
+      }
+    } 
+  }
+    
+  function getPublicLand(buffer, privateLand){
+    if(privateLand){
+      //most land that isn't private is public (city, county, state, or federally owned)     
+      var publicLand = geometryEngine.difference(buffer, privateLand);
+      return {
+        geom: publicLand,
+        area: calcArea(publicLand)
+      }  
+    } else {
+      return {
+        geom: buffer,
+        area: calcArea(buffer)
+      }
+    }
+  }
 
+  function calcArea(geom){
+    return (Math.round(geometryEngine.geodesicArea(geom, "square-miles")*100) / 100);
+  }
+    
+  function generateChart(pvtData, pubData){
+    if(pvtData.geom)
+      map.graphics.add(new Graphic(pvtData.geom, privateSym));
+    if(pubData.geom)
+      map.graphics.add(new Graphic(pubData.geom, publicSym));
+    if(!drawOpt.checked)
+      map.graphics.add(new Graphic(buffGeom, buffSym));
+    if(!pieChart){
+      var data = [
+      {
+        label: "Private (sq mi)",
+        value: pvtData.area,
+        color: "#8A8A8A",
+        highlight: "#B5B5B5"
+      },
+      {
+        label: "Government (sq mi)",
+        value: pubData.area,
+        color: "#99F095",
+        highlight: "#A1FF9C"  
+      }
+    ];
+      
+    var opts = {
+    segmentShowStroke : true,
+    segmentStrokeColor : "#fff",
+    segmentStrokeWidth : 2,
+    percentageInnerCutout : 0,
+    animationSteps : 100,
+    animationEasing : "easeOutBounce",
+    animateRotate : true,
+    animateScale : false 
+    };
+    
+    var ctx = document.getElementById("myChart").getContext("2d");
+    pieChart = new Chart(ctx).Pie(data, opts);
+    pvtPer.innerHTML = Math.round(10000*pvtData.area / (pubData.area + pvtData.area))/100 + "%";   
+    pubPer.innerHTML = Math.round(10000*pubData.area / (pubData.area + pvtData.area))/100 + "%";    
+    }
+    else{
+      //update private land data
+      pieChart.segments[0].value = pvtData.area;
+      pvtPer.innerHTML = Math.round(10000*pvtData.area / (pubData.area + pvtData.area))/100 + "%";
+      //update public land data
+      pieChart.segments[1].value = pubData.area;
+      pubPer.innerHTML = Math.round(10000*pubData.area / (pubData.area + pvtData.area))/100 + "%";
+      pieChart.update();
+    }
+  }
+
+  var buffOpt = dom.byId("buffOpt");
+  var navOpt = dom.byId("navOpt");
+  var drawOpt = dom.byId("drawOpt");
+  var pvtPer = dom.byId("privatePer");
+  var pubPer = dom.byId("publicPer");
+    
+  on(buffOpt, "click", function(evt){
+    if(buffOpt.checked){
+      map.disableMapNavigation();
+      drawPolygon.deactivate();
+    }
+  });
+    
+  on(navOpt, "click", function(evt){
+    if(navOpt.checked){
+      map.enableMapNavigation();
+      drawPolygon.deactivate();
+    }
+  });
+    
+  on(drawOpt, "click", function(evt){
+    if(drawOpt.checked){
+      drawPolygon.activate(Draw.POLYGON);
+    }
+  });  
+    
+  on(drawPolygon, "draw-end", function(evt){  
+    drawPolygon.deactivate();
+    drawPolygon.activate(Draw.POLYGON);
+    var geom = evt.geometry;
+    if(geom.rings[0].length <= 3){
+      alert("Polygon must have at least three vertices.");
+      return;
+    }
+      
+    var within = geometryEngine.within(geom, utahLyr.graphics[0].geometry);
+    //check if buffer overlaps Utah    
+    var overlaps = geometryEngine.overlaps(geom, utahLyr.graphics[0].geometry);
+    if(!within && overlaps){
+      //If buffer overlaps Utah, then only get the portion within Utah  
+      geom = geometryEngine.intersect(geom, utahLyr.graphics[0].geometry);
+    }
+    if(!within && !overlaps){
+      //If buffer is completely outside Utah, then warn the user
+      console.log("outside of utah!");          
+      return;
+    }  
+    var privateLand = getPrivateLand(geom);
+    var publicLand = getPublicLand(geom, privateLand.geom);
+    generateChart(privateLand, publicLand);
+  });  
+     
+  var loading = dom.byId("loadingImg");    
+  function showLoading() {
+    esri.show(loading);
+  }
+
+  function hideLoading(error) {
+    esri.hide(loading);
+  }
+  hideLoading();
+//  on(map, "update-end", hideLoading);    
+    
 });
 </script>
 </head>
 
 <body>
-<div class="viewDivBase" id="viewDivgs">
-  <div id="gsTitle" class="title">GeometryService</div>
-  <div id="legend">
-  Click the button below to create 500-mile<br> 
-  buffers around 500 world cities using both<br>
-  GeometryService and GeometryEngine. Each<br> 
-  method is timed. Note how quickly GeometryEngine<br> 
-  finishes compared to GeometryService.<br><br>
-  <button id="buffBtn">Create buffers</button><br><br>
-  <span id="geTime"> GeometryEngine Time: <span id="resultsGE"></span></span><br><br>
-  <span id="gsTime"> GeometryService Time: <span id="resultsGS"></span></span>
-  </div>    
-</div>
-<div class="viewDivBase" id="viewDivge">
-  <div id="geTitle" class="title">GeometryEngine</div>
+  <div id="map"><img id="loadingImg" src="http://developers.arcgis.com/javascript/samples/map_showloading/images/loading.gif" style="position:absolute; right:49%; top:49%; z-index:100;" />
+    <div class="mainStyle" id="results"><h2 id="title">Utah Land Ownership</h2>
+    <canvas id="myChart" width="250" height="250"></canvas><br><br>
+    <span class="pvt">Private land: <span id="privatePer"></span></span><br>
+    <span class="pub">Public land: <span id="publicPer"></span></span>
+    <br><br>
+    Click or drag on the map to view private and government-owned land within 10 miles of the mouse click.
+    Hover over the pie chart to view the area of each ownership type within the 10-mile buffer. 
+    <br><br><input type="radio" name="operation" id="buffOpt" checked>View ownership by map click
+    <br><br><input type="radio" name="operation" id="drawOpt">View ownership by polygon   
+    <br><br><input type="radio" name="operation" id="navOpt">Navigate Map 
+  </div>
 </div>
 </body>
-
 </html>
